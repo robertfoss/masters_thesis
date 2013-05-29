@@ -671,7 +671,7 @@ The time the compiler needs to compile shaders in the benchmarks, less time is b
 	\inputfig{cmp_time.plot}
 \end{center}
 
-In two benchmarks out of three, the compilation time is decreased. Overall, the both algorithms perform equally well.
+In two benchmarks out of three, the compilation time is decreased. Overall, the both algorithms perform equally well. The reasons for this will be discussed Section \ref{sec:eval_comp_speed}.
 
 \section{Compiled Code Benchmark}
 %% Present results of benchmark of compiled code.
@@ -684,7 +684,7 @@ The sum of the number of the arithmetic cycles used in the benchmark, fewer arit
 	\inputfig{a_cycles.plot}
 \end{center}
 
-The LLVM based algorithm has worse arithmetic cycles performance than the pair based algorithm. The pair based algorithm does to a large extent not effect the arithmetic performance.
+The LLVM based algorithm has worse arithmetic cycles performance than the pair based algorithm. The pair based algorithm does to a large extent not affect the arithmetic performance.
 
 \begin{center}
 	\inputfig{a_cycles_combined.plot}
@@ -750,6 +750,7 @@ Another effect of combining two operations is making instruction scheduling hard
 
 
 \section{Evaluation}
+\label{sec:eval_comp_speed}
 The cases of increased compilation speed in Figure \ref{plot:cmp_time} are surprising, but can be explained by the number of operations being removed by vectorization. This correlates well with the results in Figure \ref{plot:a_cycles} and Figure \ref{plot:w_reg}, where performance of BenchB is not changed other than the compilation time is being increased.
 
 Figure \ref{plot:a_cycles} shows an overall decreased arithmetic performance of the LLVM based algorithm. Specifically Figure \ref{plot:a_cycles_combined} shows that about half of the vectorizations made are unprofitable and about a fourth of them are profitable. In most cases this is due to the heuristics, which are not very conservative. There clearly are cases which cause bad performance that are not taken into account when computing the \textbf{TreeScore}.
@@ -808,7 +809,7 @@ Another conclusion is that BenchC lends itself very well to vectorization.
 
 In general the performance of the output of the pair based vectorizer is unchanged. This is due to the heuristics being very careful as to not do unprofitable vectorization, still unprofitable vectorizations are performed. If more cases of profitable vectorization were found, more performance gains could be had.
 
-The goal of this master's thesis was to find an develop a basic-block auto-vectorization optimization pass suitable for a graphics compiler. Two optimization passes have been developed, however no large performance gains have been found with either of them, but compilation speed increases have been found.
+The goal of this master's thesis was to find and develop a basic-block auto-vectorization optimization pass suitable for a graphics compiler. Two optimization passes have been developed, however no large performance gains have been found with either of them, but compilation speed increases have been found.
 
 Improving performance for a graphics compiler on an all vector register machine is difficult for a few reasons. Move operations are likely to be carried out on the same hardware as the vector operations, which in principle prevents the usage of any moves. The same issue of sharing hardware resources is likely to be valid for operations and their vector operations counterparts, which means that a successful vectorization only saves a single cycle. Register pressure is increased which can have very severe consequences in the context of graphics applications and performance. Additionally the instruction scheduler will be faced with a tighter schedule as a result of two operations that previously could be chronologically separate, but now need their dependences to be met at the same time.
 
@@ -819,7 +820,7 @@ Further exploration into heuristics is needed to find more cases of guaranteed o
 
 \textbf{HasDependence} could be improved to have a better time-complexity using an algorithm like Tarjan's strongly connected components (henceforth SCC) algorithm \cite{tarjan1972depth}. If the operations in the pair are temporarily fused and SCC does find a group of size larger than one, a dependence cycle has arisen. SCC has the time-complexity $\mathcal{O}(|V| + |E|)$, where $V$ is the set of operations in the basic-block and $E$ is the set of direct dependences between operations.
 
-Caching the results of \textbf{HasDependence} is another alternative that is straight forward to implement and would yield an performance improvement. However the cache would need to be cleared after every fused operation pair, which limits its effectiveness.
+Caching the results of \textbf{HasDependence} is another alternative that is straight forward to implement and would yield a performance improvement. However the cache would need to be cleared after every fused operation pair, which limits its effectiveness.
 
 
 
