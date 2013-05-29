@@ -1,0 +1,37 @@
+\documentclass[12pt,a4paper,onecolumn, openright]{report}
+
+\usepackage{thesis}
+\usepackage{datetime}
+\usepackage{float}
+\usepackage{natbib}
+\usepackage{fixltx2e} % Fix nested \Call{}{\Call{}{}}
+\MakeRobust{\Call}    % Fix nested \Call{}{\Call{}{}}
+\usepackage{amssymb}
+
+
+
+\begin{document}
+
+\pagenumbering{roman}
+\thispagestyle{empty}
+
+\begin{center}
+\textbf{\Large Opposition: Comparison of optical character recognition (OCR) software\\}
+\vspace{0.25cm}
+by\\
+\vspace{0.25cm}
+Robert Foss
+\end{center}
+
+\begin{description}
+  \item[Why wasn't learning used?] \hfill \\
+  When determining the capabilities of OCR software, learning could have been used to increase accuracy of the OCR software that supports it.
+  \item[Are the basic settings equivalent?] \hfill \\
+  The most basic settings were used for each OCR software while testing, which is a choice when conducting a comparison like this. But to what extent are the defaults of the different OCR software equivalent?
+  \item[Why weren't execution times obtained?] \hfill \\
+  OCR software have different approaches to analysis and utilize a range of different algorithms to produce a result. Why wasn't execution time measured? It would provide a hint into what the default settings of what the different software uses. It would also be interesting from the point of view of selecting an appropriate OCR software for a specific use case.
+  \item[Why was the material analyzed so small?] \hfill \\
+  8 basic samples were used and some were altered to produce new samples. Is the sample set large and broad enough to provide an accurate picture of what performance would be in the average case? Is the sample set specific enough to provide an accurate picture of what performance would be in a specific scenario?
+\end{description}
+
+\end{document}

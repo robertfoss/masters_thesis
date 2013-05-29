@@ -1,0 +1,176 @@
+\documentclass[12pt,a4paper,onecolumn,openright]{report}
+
+\usepackage{thesis}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{multicol}
+\usepackage{adjustbox}
+
+
+\begin{document}
+
+\begin{center}
+\begin{spacing}{1.5}
+\textbf{\Large Basic-block vectorization for graphics compilers}
+\end{spacing}
+\end{center}
+
+\begin{multicols}{2}
+Graphic processors are built to handle very parallel tasks, like calculating the color of each pixel on a screen. This parallelism is only useful if it is effectively utilized and a common approach is vectorization.
+
+Vectorization is the idea of doing two calculations at the same time. Let's say you are calculating $a + b$ and later on $c + d$, if those two calculations could be done at the same time instead of one at a time, you've effectively doubled performance.
+
+
+\begin{figure}[H]
+\label{plot:w_reg}
+\begin{tikzpicture}
+    \begin{axis}[
+		width  = 6.5cm,
+		height = 4.5cm,
+		major x tick style = transparent,
+%		ybar=2*\pgflinewidth,	% No space between bars, use when bar borders are overlapping
+		ybar=0pt,				% No space between bars, use if ybar=2*\pgflinewidth is causing issues
+		bar width=14pt,
+		ymin=0.95,
+		ymajorgrids = true,
+		major grid style={black!50},
+		yminorgrids = true,
+		minor y tick num={1},	% Set how many minor ticks to use per major tick
+		minor grid style={gray!25},
+		ylabel = {Register usage ratio},
+		symbolic x coords={BenchA, BenchB, BenchC},
+		xtick = data,			% Prevent x-ticks from being spammed.
+		scaled y ticks = false,
+		enlarge x limits=0.25,	% Make x-axis larger to properly fit goups
+		legend cell align=left,
+		legend style={
+			column sep=1ex,		% Separation between symbol and text
+			anchor=north,
+			at={(0.5,-0.25)},
+			legend columns=-1	% Present legend in a single line
+%			at={(1,1.05)},
+%			anchor=south east
+		}
+	]
+        \addplot[style={bblue,fill=bblue,mark=none}]
+			coordinates {(BenchA,1.00) (BenchB,1.00) (BenchC,1.00)};
+
+        \addplot[style={rred,fill=rred,mark=none}]
+			coordinates {(BenchA,0.992) (BenchB,1.00) (BenchC,0.97)};
+
+
+%        \legend{No vectorization, Pair-based}
+    \end{axis}
+\end{tikzpicture}
+\end{figure}
+
+Register usage is measure of space. Think of registers like like the RAM in your laptop or phone, but integrated into the processor. In the context of graphics processors, decreased register usage translates into increased performance.
+
+
+The results gathered and shown in the arithmetic cycles plot shows that performance is being improved somewhere between +0.8\% and +3\%, and on average +1.9\%.
+
+
+
+\begin{figure}[H]
+\label{plot:a_cycles}
+\begin{tikzpicture}
+    \begin{axis}[
+		width  = 6.5cm,
+		height = 4.5cm,
+		major x tick style = transparent,
+%		ybar=2*\pgflinewidth,	% No space between bars, use when bar borders are overlapping
+		ybar=0pt,				% No space between bars, use if ybar=2*\pgflinewidth is causing issues
+		bar width=14pt,
+		ymin=0.95,
+		ymajorgrids = true,
+		major grid style={black!50},
+		yminorgrids = true,
+		minor y tick num={1},	% Set how many minor ticks to use per major tick
+		minor grid style={gray!25},
+		ylabel = {Arithmetic cycles ratio},
+		symbolic x coords={BenchA, BenchB, BenchC},
+		xtick = data,			% Prevent x-ticks from being spammed.
+		scaled y ticks = false,
+		enlarge x limits=0.25,	% Make x-axis larger to properly fit goups
+		legend cell align=left,
+		legend style={
+			column sep=1ex,		% Separation between symbol and text
+			anchor=north,
+			at={(0.35,-0.25)},
+			legend columns=-1	% Present legend in a single line
+%			at={(1,1.05)},
+%			anchor=south east
+		}
+	]
+        \addplot[style={bblue,fill=bblue,mark=none}]
+			coordinates {(BenchA,1.00) (BenchB,1.00) (BenchC,1.00)};
+
+        \addplot[style={rred,fill=rred,mark=none}]
+			coordinates {(BenchA,1.014) (BenchB,1.00) (BenchC,0.997)};
+
+
+        \legend{No vectorization, Pair-based}
+    \end{axis}
+\end{tikzpicture}
+\end{figure}
+
+Arithmetic cycles is a measure for the amount of time it takes to compute a value. Cycles per seconds are measured in what commonly is referred to as mHz.
+
+The results gathered and shown in the arithmetic cycles plot shows that performance is being altered somewhere between -1.4\% and +0.03\%, and on average -0.69\%.
+
+
+\begin{figure}[H]
+\label{plot:cmp_time}
+\begin{tikzpicture}
+    \begin{axis}[
+		width  = 6.5cm,
+		height = 4.5cm,
+		major x tick style = transparent,
+%		ybar=2*\pgflinewidth,	% No space between bars, use when bar borders are overlapping
+		ybar=0pt,				% No space between bars, use if ybar=2*\pgflinewidth is causing issues
+		bar width=14pt,
+		ymin=0.98,
+		ymajorgrids = true,
+		major grid style={black!50},
+		yminorgrids = true,
+		minor y tick num={1},	% Set how many minor ticks to use per major tick
+		minor grid style={gray!25},
+		ylabel = {Compilation time ratio},
+		symbolic x coords={BenchA, BenchB, BenchC},
+		xtick = data,			% Prevent x-ticks from being spammed.
+		scaled y ticks = false,
+		enlarge x limits=0.25,	% Make x-axis larger to properly fit goups
+		legend cell align=left,
+		legend style={
+			column sep=1ex,		% Separation between symbol and text
+			anchor=north,
+			at={(0.5,-0.25)},
+			legend columns=-1	% Present legend in a single line
+%			at={(1,1.05)},
+%			anchor=south east
+		}
+	]
+        \addplot[style={bblue,fill=bblue,mark=none}]
+			coordinates {(BenchA,1.00) (BenchB,1.00) (BenchC,1.00)};
+
+        \addplot[style={rred,fill=rred,mark=none}]
+			coordinates {(BenchA,0.988867306) (BenchB,1.008398639) (BenchC,0.995989841)};
+
+%        \legend{No vectorization, Pair-based}
+    \end{axis}
+\end{tikzpicture}
+\end{figure}
+
+The process where programs that developers have written is translated into something that a processors can run is called compilation. It is during compilation vectorization takes place. The time it takes to compile the benchmarks BenchA, BenchB and BenchC is changed by applying vectorization.
+
+The results gathered and shown in the compilation time plot shows that compilation speed being changed somewhere between -0.8\% and +1.1\%, and on average +0.2\%.
+
+
+These results are interesting not because the performance of compiled programs is increased, but because it is done while at the same time speeding up compilation.
+
+If the vectorization presented here was used by a cellphone, battery usage could be lowered and the time to start and application might be lowered as well.
+
+This research was hosted by ARM Sweden at their office in Lund.
+
+\end{multicols}
+\end{document}

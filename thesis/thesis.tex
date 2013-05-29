@@ -1,0 +1,835 @@
+\RequirePackage[l2tabu,orthodox]{nag}
+
+% Setup indentions for book binding
+%
+\newif\ifbinding
+%\bindingtrue
+\bindingfalse
+\ifbinding
+	\documentclass[12pt,a4paper,onecolumn,twoside,openright]{report}
+	\RequirePackage[left=2.5cm,right=2.5cm,top=3cm,bottom=3cm, bindingoffset=1cm]{geometry}
+\else
+	\documentclass[12pt,a4paper,onecolumn,openright]{report}
+\fi
+
+\usepackage{thesis}
+\usepackage{datetime}
+\usepackage{float}
+\usepackage{natbib}
+\usepackage{fixltx2e} % Fix nested \Call{}{\Call{}{}}
+\MakeRobust{\Call}    % Fix nested \Call{}{\Call{}{}}
+\usepackage{amssymb}
+
+\usetikzlibrary{shapes,shapes.geometric}
+
+
+\begin{document}
+\pagenumbering{roman}
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Title
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\thispagestyle{empty}
+\begin{center}
+
+\begin{spacing}{1.5}
+\textbf{\Large Basic-block vectorization for graphics compilers}
+\end{spacing}
+
+\vspace{0.5cm}
+by \\
+\vspace{0.25cm}
+{\large Robert Foss}
+
+\vspace{11.0cm}
+
+Department of Computer Science \\
+Faculty of Engineering at Lund University
+
+\vspace{\fill}
+\monthname[\the\month] \the\year \\
+\vspace{\fill}
+
+\par\vfill {\large Master's thesis work carried out at \textit{ARM}.} \\ \vskip 1em
+\begin{tabular}{rll}
+Supervisors & Jonas Skeppstedt & \href{mailto:jonas.skeppstedt@cs.lth.se}{\texttt{jonas.skeppstedt@cs.lth.se}}   \\
+            & Markus Lavin     & \href{mailto:markus.lavin@arm.com}{\texttt{markus.lavin@arm.com}}               \\
+Examiner    & Jonas Skeppstedt & \href{mailto:jonas.skeppstedt@cs.lth.se}{\texttt{jonas.skeppstedt@cs.lth.se}}   \\
+\end{tabular}
+\end{center}
+	
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Abstract
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Abstract}
+\begin{center}
+\textbf{\large Abstract}
+\end{center}
+
+Increasingly complex graphics shaders and new use cases like OpenCL provide increased opportunities for vectorization, due the the larger code-bases they provide. Unlike general-purpose microprocessors, graphics microprocessors can feasibly be equipped with just vector registers. By already having data in vector registers, some of the cost of vectorization can be avoided, which leads to vectorization being simpler on graphics microprocessors than on most general-purpose microprocessors.
+
+Graphics compilers mostly do compilation during the run-time of applications, which makes compilation time a serious aspect of any GPU compiler transformation.
+
+In this thesis two basic-block vectorizers suitable for graphics compilers and microprocessors are presented and evaluated.
+
+\keywords{gpu, compiler, basic-block, vectorization}
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Acknowledgements
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Acknowledgments}
+\begin{center}
+\textbf{\large Acknowledgments}
+\end{center}
+
+I would like to thank my on-site supervisor Markus Lavin for tracking down compiler issues and helping me navigate the ins and outs a new compiler.
+Dmitri Ivanov for proofreading this paper, performance diagnostics, and being a great source of knowledge.
+Hal Finkel for the optimization pass BBVectorize in LLVM, related talks, references and email correspondence.
+Johan Grönqvist for helping out with debugging tools, ideas and providing interesting reading material.
+Mikael Nilsson, who was doing his master thesis on a different optimization pass for the same compiler, for being a great sounding board.
+Krister Walfridsson for proofreading this paper and interesting discussions.
+Jonas Skeppstedt for proofreading this paper and planting the seed of an interest in compilers.
+ARM Holdings, Olof Dellien and Philippe Coucaud for hosting this work in the graphics compiler team at ARM Lund.
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Table of Contents
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\phantomsection
+\tableofcontents
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   List of Tables
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%\newpage
+%\phantomsection \label{listoftabl}
+%\addcontentsline{toc}{chapter}{List of Tables}
+%\listoftables
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   List of Figures
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\phantomsection \label{listoffig}
+\addcontentsline{toc}{chapter}{List of Figures}
+\listoffigures
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   List of Algorithms
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\phantomsection \label{listofalg}
+\addcontentsline{toc}{chapter}{List of Algorithms}
+\listofalgorithms
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Introduction
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Introduction}
+\phantomsection \label{chap:intro}
+\pagenumbering{arabic}
+%% short introduction to the area
+%% problem definition
+%% related work (literature study)
+%% contributions (This part is essential to pinpoint individual work. For theses with
+
+
+
+%%%%% Short introduction
+Much research has been dedicated to vectorization since the introduction of the earliest vector supercomputer Solomon, which could handle up to 1024 operands\cite{ball1962solomon}.
+Current general-purpose microprocessors often support multimedia extensions like AltiVec\cite{diefendorff2000altivec} for the PowerPC instruction set, AVX\cite{firasta2008intel} for the x86 instruction set and NEON\cite{arm2005neon} for the ARMv7 and ARMv8 instruction sets.
+Common general-purpose microprocessor workloads are rarely very vectorizable. Because of this and the diverse set of multimedia extensions, code written for general purpose microprocessors is often disregarding performance gains that could be achieved with vectorization.
+
+Like general-purpose microprocessors, modern personal computer graphics processing units (henceforth GPUs) have support for executing general purpose code on vector hardware. The focus however is on computational throughput which makes GPUs ideal for batch calculations of many kinds. General-purpose GPU (henceforth GPGPU) support has evolved in four generations of GPU hardware.
+The first generation of GPUs capable of 3D graphics, like the 3dfx Voodoo Graphics, are based on a simple fixed function pipeline. Geometry is calculated by the central processing unit (henceforth CPU) and pixels are calculated by the GPU. The first generation GPU pipeline basically consists of three stages; rasterization, texturing and blending.
+Second generation GPUs, like the ATI Radeon 7500\cite{fernando2004programming} and the nVidia GeForce 256\cite{nvidia1999geforce256}, introduced hardware support for; geometry processing, transform \& lightning and clipping. The increased hardware support led to a large increase in performance and the first thoughts of GPGPUs. GPGPUs were still infeasible since the hardware was just configurable and not programmable.
+Third generation GPUs, like the ATI Radeon 9700\cite{riguer2006radeon} and the nVidia GeForce FX\cite{riguer2006radeon}, introduced a separate vertex shader and fragment shader both of which were programmable. The hardware implementation of the vertex and fragment shaders were different since they had different requirements. This hardware is the first hardware generation for which GPGPU is possible. However the floating point implementations were not standards compliant, which caused practical issues.
+Fourth generation GPUs, like the  ATI Radeon X1800\cite{riguer2006radeon} and the nVidia GeForce 8800\cite{luebke2007gpus}, introduced unified shaders. A unified shader unit handles the calculations of both the vertex and the fragment shader. Additionally support for longer programs, branching and floats based on the full IEEE-754 floating point specification were introduced. Unified shaders are well suited for GPGPU calculations and are what is used by OpenCL and CUDA today.
+
+Modern GPUs do not include multimedia extensions and are generally optimized for vector inputs.
+This design is a result of graphics shaders often computing scalars or small vectors both of which are ideal candidates for simultaneous computation on a wide vector unit.
+Graphics shaders are also becoming increasingly complex and the use cases for GPUs are becoming more diverse with additions like OpenCL. Both leading to larger code-bases and thereby larger opportunities for optimizations.
+
+
+
+%%%% Problem Definition
+Computation of scalars and small vectors can be done more efficiently if vector-registers and vector-units are fully utilized. For graphics microprocessors the hardware is rarely exposed to the programmer, which places the responsibility of vectorization largely on the graphics compiler. If vectorization is to be used and effectively utilize the hardware the compiler has to have full knowledge of the hardware architecture and be able to maximize the utilization of all resources.
+
+However there are many costs associated with simply combining two operations into a vector operation (henceforth fusing) and they can be divided into compile-time costs and run-time costs.
+
+Compile-time costs arise from deciding which vectorization alternatives are legal and profitable, where the legality of an operation is determined by if it is hardware-wise possible and logically equivalent to the unvectorized code. Cyclical data dependences have to be found and avoided. Legal vectorization options have to be found, sorted and determined to be profitable. Vectorization options are rarely independent and selecting one option might prevent every other option from being legal or profitable. Knowing that one option might exclude other options and that run-time of the compilation is important, we are forced to resort to heuristics to determine which options are preferable.
+
+Run-time costs arise when data has to be moved into a specific register, re-ordered inside a vector register or the results from an operation has to be moved into another register. Move operations are not always required and should be avoided where possible. Register pressure may also be increased, which can have a severe performance impact.
+
+
+%%%% Related Work (literature study)
+%% Mention LLVM BBVectorize and the gcc straight line vectorizer.
+Common vectorization techniques fall into one of two categories, loop transformations or basic-block vectorization.
+
+Loop transformations are based on analyzing loop boundaries and data dependences. Algorithms like Fourier-Motzkin elimination\cite{aho2007compilers} can be used to determine which loop-iterations are independent and therefore vectorizable. GCC uses data dependence analysis in the form of a Static Single Assignment \cite{cytron1991efficiently}\cite{naishlos2004autovectorization} graph in combination with a Strongly Connected Components search using a linear algorithm like that presented by Tarjan\cite{tarjan1972depth}. Loop iterations that are found to have no data dependence can be vectorized by simply doing multiple iterations of the loop by replacing operations with their vector equivalent. If the original loop runs a number of iterations which isn't evenly divisible by the vectorization factor, a cleanup loop is needed. The cleanup loop runs the remaining loop iterations, which haven't been computed by the vectorized loop.
+
+Basic-block vectorization is done by determining which operations are independent and can be combined into a vector operation. The Vienna MAP vectorizer \cite{lorenz2005vectorization} introduced the idea of finding pairs of operations that can be built into trees of vector operations, to avoid having to move data around. The Vienna MAP vectorizer is the basis of basic-block vectorizer of LLVM called BBVectorize, which was introduced in LLVM version 3.1 by Hal Finkel. BBVectorize does basic-block vectorization by doing dependence analysis, pairing independent operations and chaining the pairs into trees. If the trees are long enough, the best trees of pairs are converted into vector operations \cite{finkel2012bbvectorize}. Heuristics are used to determine what constitutes a good tree. Some heuristics used in the LLVM basic-block vectorizer are not applicable or needed for graphics microprocessors, since the hardware architecture is based on vector-registers only.
+
+
+%%%%% Contributions
+This paper takes the basic ideas of the LLVM basic-block vectorizer and adapts them to suit vector register based microprocessors and provide compilation speeds for shaders that are fast enough not to be an issue or bottleneck.
+A second simpler basic-block vectorization algorithm is introduced and compared to the LLVM based basic-block vectorizer.
+% Skriv om HasDependence alternativ och ideer?
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Approach
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Approach}
+\phantomsection \label{chap:approach}
+%% Should basically contain a description of your solution(s), with all the theoretical background needed.
+
+\section{Data dependence}
+If an operation writes to a variable that is read or written by another operation, changing their execution order can change the results. Such pairs of operations are called data dependent operations. 
+To create a legal vectorization, the operations that will be fused into a vector operation can have no dependence on each other. If a chain of operation pairs is to be fused, there can be no dependence between the pairs other than a pair depending on the previous pair in the chain. Both of these rules are used to prevent cyclical dependences in which input requirements of one or more operations are unsatisfiable.
+There are three kinds of data dependence\cite{aho2007compilers}\cite{kuck1981dependence}.
+
+\begin{description}
+\item[True dependence, flow dependence or read after write:] \hfill \\
+When a write to a location is followed by a read from the same location, the read depends on the value written by the write.
+
+\item[Antidependence or write after read:] \hfill \\
+When a read from a location is followed by a write to the same location, the write does not depend on the read as long as the internal ordering is intact. But if the operations were to be internally reordered a true dependence would arise.
+
+\item[Output dependence or write after write:] \hfill \\
+When a write to a location is followed by another write to the same location, the ordering of the operations defines the results.
+\end{description}
+
+True dependences and output dependences must be avoided to produce legal vectorizations. Antidependence can be worked around by storing the values in different places, however that is beyond the scope of this optimization. Dependence analysis can be very expensive if implemented in a naive way. The cost of dependence analysis is tied to the basic-block size and the amount of operations of a single type that exist in that basic-block. Therefore unneeded pairs are pruned as early as possible as not to incur unnecessary dependence checks.
+
+
+
+\section{LLVM based basic-block vectorization}
+This implementation is based on the ideas of the Vienna MAP vectorizer\cite{lorenz2005vectorization} and the LLVM basic-block vectorizer\cite{finkel2012bbvectorize}. The overarching idea is to find fusible pairs of operations which can be profitably fused. To achieve this, trees of operations are built and heuristically determined to be either profitable to vectorize or not. 
+
+The algorithm is designed to be called in a fixed-point iteration manner, so that already fused operations can be fused again until the maximum vector length that the hardware supports has been reached.
+
+Dictionaries or key-value maps will be described as dict\{key\} in the following algorithms.
+
+\begin{algorithm}[H]
+	\caption{Sort operations by type.} \label{alg:sort}
+	\small
+	\begin{algorithmic}
+	\Function{Sort}{$basicBlock$}
+		\State $opSets \gets \varnothing$
+		\ForAll {$op \in basicBlock$}
+			\If {$\Call{IsFusible}{\Call{OpType}{op}}$}
+				\State $opSets\{\Call{OpType}{op}\} \gets opSets\{\Call{OpType}{op}\} + op$
+			\EndIf
+		\EndFor
+		\State \textbf{return} $opSets$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain IsFusible(), OpType()
+The purpose of Algorithm \ref{alg:sort} is to sort operations into sets where every operation in a set is possible to fuse with another from the same set. \textbf{IsFusible} is a filtering function which prevents operations which cannot be fused from being added to \textit{opSets}. Operations that cannot be fused can be filtered out by determining two criteria; vector length and operation type. 
+An operation of vector length 5 cannot be successfully vectorized on a microprocessor which has support for vector a length of at most 4, and is ignored.
+Certain operation types, like jumps, aren't meaningful to vectorize and can also be ignored. 
+\textbf{OpType} is simply a function that returns the operation type of an operation. The result of \textbf{OpType} is used as an index or key for retrieving and storing all operations of a type in the same set.
+\\
+
+\begin{algorithm}[H]
+	\caption{Pair fusible operations.} \label{alg:pair}
+	\small
+	\begin{algorithmic}
+	\Function{BuildPairs}{$opTypes, opSets$}
+		\State $opPairs \gets \varnothing$
+		\ForAll {$opSet \in opSets$}
+			\For {$i \gets 0; i < \Call{Length}{opSet}; i \gets i+1$}
+				\For {$k \gets i+1; k < \Call{Length}{opSet}; k \gets k+1$}
+					\If {$\Call{AreFusible}{opSet[i], opSet[k]}$}
+						\State $opPairs \gets opPairs + \Call{Pair}{opSet[i], opSet[k]}$
+					\EndIf
+				\EndFor
+			\EndFor
+		\EndFor
+		\State \textbf{return} $opPairs$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain AreFusible(), Length(), Pair()
+Algorithm \ref{alg:pair} considers every possible combination of two operations in a set for each \textit{opSet} in \textit{opSets}. \textbf{Length} is used to determine the number of elements in the set \textit{opSet}. 
+Combinations of operations are filtered through the function \textbf{AreFusible} to remove variants that are not fusible on the grounds of the following criteria; combined vector length, subtypes and dependences between the two operations.
+
+If the combined vector length of the two operations is larger than what the microprocessor supports, ignore that operation combination. 
+
+If the combination contains operations of differing subtypes, like compare equals and compare less than, ignore that combination.
+
+Finally, if there is a data dependence between the two operations, the operations can't safely be paired and have to be ignored. Internally \textbf{AreFusible} implements its dependence check using the function \textbf{HasDependence}, which will be discussed in Algorithm \ref{alg:prune_cycl_pair}.
+
+Operation combinations are paired using \textbf{Pair} and then added to the set of all pairs called \textit{opPairs}.
+\\
+
+\begin{algorithm}[H]
+	\caption{Find directly dependent pairs.} \label{alg:find_dep}
+	\small
+	\begin{algorithmic}
+	\Function{FindPairUses}{$opPairs$}
+		\State $pairUses \gets \varnothing$
+		\ForAll {$pair \in opPairs$}
+			\State $pairsUsingOp1 \gets \Call{DirectDependences}{\Call{Op1}{pair}}$
+			\State $pairsUsingOp2 \gets \Call{DirectDependences}{\Call{Op2}{pair}}$
+			\State $pairUses\{pair\} \gets pairsUsingOp1 \cap pairsUsingOp2$
+		\EndFor
+		\State \textbf{return} $pairUses$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain Op1(), Op2() and DirectDependences()
+Algorithm \ref{alg:find_dep} finds all pairs which use the outputs of both operations in \textit{pair} as input and adds them to a set in \textit{pairUses}. \textbf{Op1} and \textbf{Op2} simply fetch the first and second operation from a pair. \textbf{DirectDependences} fetches all pairs which directly depend on the output of an operation. The union of \textit{pairsUsingOp1} and \textit{pairsUsingOp2} will consist only of pairs that directly depend on both outputs of \textit{pair}.
+\\
+
+\begin{algorithm}[H]
+	\caption{Build unpruned trees.} \label{alg:build_trees}
+	\small
+	\begin{algorithmic}
+	\Function{BuildUnprunedTrees}{$opPairs, pairUses$}
+		\State $pairTrees \gets \varnothing$
+		\ForAll {$pair \in opPairs$}
+			\State $treeRoot \gets \Call{Tree}{pair}$
+			\State $pairTrees\{pair\} \gets treeRoot$
+			\State $\Call{Recurse}{treeRoot, pair, pairUses}$
+		\EndFor
+		\State \textbf{return} $pairTrees$
+	\EndFunction
+	\\
+	\Function{Recurse}{$treeParent, pair, pairUses$}
+		\ForAll {$childPair \in pairUses\{pair\}$}
+			\State $treeNode \gets \Call{Tree}{childPair}$
+			\State $\Call{AddTreeBranch}{treeParent, treeNode}$
+			\State $\Call{Recurse}{treeNode, childPair, pairUses}$
+		\EndFor
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain AddTreeBranch()
+Algorithm \ref{alg:build_trees} uses the \textit{pairUses} information to construct trees, where each child of a tree node directly depends on that tree node.
+Each pair is made into a tree, even if the height of that tree would be just one pair. The \textbf{Tree} function constructs a tree node out of a pair. \textbf{AddTreeBranch} is used to a append a tree node as a child to another tree node.
+\\
+
+\begin{algorithm}[H]
+	\caption{Prune low-scoring trees.} \label{alg:prune_score}
+	\small
+	\begin{algorithmic}
+	\Function{PruneLowScoringTrees}{$pairTrees, minScore$}
+		\ForAll {$tree \in pairTrees$}
+			\If {$\Call{TreeScore}{tree} < minScore$}
+				\State $pairTrees \gets pairTrees \setminus tree$
+			\EndIf
+		\EndFor
+		\State \textbf{return} $pairTrees$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain TreeScore()
+Algorithm \ref{alg:prune_score} has the task of removing all trees with a score lower than \textit{minScore} from \textit{pairTrees}. This pruning is needed to minimize the number of trees Algorithm \ref{alg:prune_cycl_pair} has to process. This is important because Algorithm \ref{alg:prune_cycl_pair} can be very expensive and depends on the size of the basic-block. The pruning is also used to remove trees from \textit{pairTrees} to enable iteration over \textit{pairTrees} until it does not contain any trees. \textbf{TreeScore} is the function containing the heuristics that determine which trees are profitable to vectorize and which are not, and it will be further discussed in Section \ref{sec:treescore}.
+\\
+
+\begin{algorithm}[H]
+	\caption{Prune duplicated operations.} \label{alg:prune_dup_ops}
+	\small
+	\begin{algorithmic}
+	\Function{PruneDuplicatedOperations}{$pairTrees$}
+		\ForAll {$treeRoot \in pairTrees$}
+			\State $seenOperations \gets \varnothing$
+			\State $\Call{Recurse}{treeRoot, seenOperations}$
+		\EndFor
+		\State \textbf{return} $pairTrees$
+	\EndFunction
+	\\
+	\Function{Recurse}{$treeParent, seenOperations$}
+		\ForAll {$treeChild \in \Call{TreeChildren}{treeParent}$}
+			% Fix these semantics
+			\If {$\Call{Op1}{treeChild} \subset seenOperations$}
+				\State $\Call{RemoveTreeBranch}{treeParent, treeChild}$
+				\State \textbf{continue}
+			\ElsIf {$\Call{Op2}{treeChild} \subset seenOperations$}
+				\State $\Call{RemoveTreeBranch}{treeParent, treeChild}$
+				\State \textbf{continue}
+			\Else
+				\State $seenOperations \gets seenOperations \cap \Call{Op1}{treeChild}$
+				\State $seenOperations \gets seenOperations \cap \Call{Op2}{treeChild}$	
+				\State $\Call{Recurse}{treeChild, seenOperations}$
+			\EndIf
+		\EndFor
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain TreeChildren() and RemoveTreeBranch()
+The purpose of Algorithm \ref{alg:prune_dup_ops} is to remove pairs which contain operations that are found elsewhere in the tree. \textbf{TreeChildren} returns a set of all child nodes to the tree node that is the argument. \textbf{RemoveTreeBranch} simple removes a tree node from the list of children of another tree node.
+
+When two or more duplicated operations are found, every operation after the first one found will be pruned from the tree. This is a very simple heuristic and could be improved to make more intelligent decisions.
+\\
+
+\begin{algorithm}[H]
+	\caption{Prune intradependent pairs.} \label{alg:prune_cycl_pair}
+	\small
+	\begin{algorithmic}
+	\Function{PruneIntradependentPairs}{$pairTrees$}
+		\ForAll {$treeRoot \in pairTrees$}
+			\State $\Call{Recurse}{treeRoot}$
+		\EndFor
+		\State \textbf{return} $pairTrees$
+	\EndFunction
+	\\
+	\Function{Recurse}{$treeParent$}
+		\ForAll {$treeChild \in \Call{TreeChildren}{treeParent}$}
+			\If {$\Call{HasDependence}{\Call{Op1}{treeChild}, \Call{Op2}{treeChild}}$}
+				\State $\Call{RemoveTreeBranch}{treeParent, treeChild}$
+				\State \textbf{continue}
+
+			\EndIf
+			\State \Call{Recurse}{treeChild, seenOperations}
+		\EndFor
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain HasDependency()
+% Since new dependences are created when fusing operations, intrapair dependences may arise.
+Algorithm \ref{alg:prune_cycl_pair} is used to prune pairs which contain operations that have intra-dependences. This has already been done once when building the trees, but new dependences might have been introduced when fusing pairs in Algorithm \ref{alg:fuse_branch}. \textbf{HasDependence} simply checks whether there exists an intra-dependence between the operations in the pair of a tree node. If dependences are found, that branch is pruned from the tree.
+\\
+
+\begin{algorithm}[H]
+	\caption{Fetch the best branch of the best tree.} \label{alg:get_best_branch}
+	\small
+	\begin{algorithmic}
+	\Function{GetBestBranch}{$pairTrees$}
+		\State $bestTree \gets \varnothing$
+		\ForAll {$tree \in pairTrees$}
+			\If {$\Call{TreeScore}{tree} > \Call{TreeScore}{bestTree}$}
+				\State $highestTree \gets tree$
+			\EndIf
+		\EndFor
+		\State $branchPairList \gets  \Call{CreateList}{\Call{Pair}{\Call{TreeRoot}{bestTree}}}$
+		\State \textbf{return} $\Call{Recurse}{\Call{TreeRoot}{bestTree}, branchPairList}$
+	\EndFunction
+	\\
+	\Function{Recurse}{$treeParent, branchPairList$}
+		\State $bestBranch \gets \varnothing$
+		\ForAll {$treeChild \in \Call{TreeChildren}{treeParent}$}
+			\If {$\Call{TreeScore}{tree} > \Call{TreeScore}{bestBranch}$}
+				\State $bestBranch \gets treeChild$
+			\EndIf
+		\EndFor
+		\State $\Call{AppendToList}{branchPairList, treeParent}$
+		\If {$bestBranch = \varnothing$} \Comment{This node is a leaf.}
+			\State \textbf{return} $branchPairList$
+		\EndIf
+		\State \textbf{return} $\Call{Recurse}{bestBranch, branchPairList}$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain TreeRoot(), Pair(), AppendToList(), CreateList()
+The purpose of Algorithm \ref{alg:get_best_branch} is to find the best tree and extract the best branch from it, for this lookup \textbf{TreeScore} is used as the main heuristic. \textbf{Pair} returns the pair of a tree node, \textbf{CreateList} creates a new list consisting of its argument and \textbf{AppendToList} simply appends a pair to a list.
+The returned list is ordered in the same order as the tree nodes were.
+\\
+
+\begin{algorithm}[H]
+	\caption{Prune fused operations.} \label{alg:prune_fused_ops}
+	\small
+	\begin{algorithmic}
+	\Function{PruneFusedOperations}{$pairTrees, branchPairList$}
+		\ForAll {$treeRoot \in pairTrees$}
+			\State $\Call{Recurse}{treeRoot, branchPairList}$
+		\EndFor
+		\State \textbf{return} $pairTrees$
+	\EndFunction
+	\\
+	\Function{Recurse}{$treeParent, branchPairList$}
+		\ForAll {$treeChild \in \Call{TreeChildren}{treeParent}$}
+			\If {$\Call{Op1}{treeChild} \subset \Call{Ops}{branchPairList}$}
+				\State $\Call{RemoveTreeBranch}{treeParent, treeChild}$
+				\State \textbf{continue}
+			\ElsIf {$\Call{Op2}{treeChild} \subset \Call{Ops}{branchPairList}$}
+				\State $\Call{RemoveTreeBranch}{treeParent, treeChild}$
+				\State \textbf{continue}
+			\EndIf
+			\State $\Call{Recurse}{treeChild, branchPairList}$
+		\EndFor
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain Ops()
+Algorithm \ref{alg:prune_fused_ops} prunes branches which contain pairs that use operations that have already been fused. \textbf{Ops} returns the set of operations contained within all pairs in \textit{branchPairList}. The operations that are removed have also been removed from the control flow graph of the program and replaced with its vector counterpart by the \textbf{FusePair} function in Algorithm \ref{alg:fuse_branch}. However the new vector operation can be fused later during the fixed-point iteration of this entire optimization.
+\\
+
+\begin{algorithm}[H]
+	\caption{Fuse operation pairs into vector operations.} \label{alg:fuse_branch}
+	\small
+	\begin{algorithmic}
+	\Function{FuseBranch}{$branchPairList$}
+		\ForAll {$pair \in branchPairList$}
+			\State $\Call{FusePair}{pair}$
+		\EndFor
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+% Explain FusePair()
+The purpose of Algorithm \ref{alg:fuse_branch} is to fuse all operation pairs in the list into vector operations. The \textbf{FusePair} function is used to fuse the two operations of a pair. When the first pair is fused data usually has to be moved into the vector registers that are the arguments of the newly fused vector operation. Similarly the result of the last newly fused vector operation usually has to be moved into other registers.
+\\
+
+\begin{algorithm}[H]
+	\caption{Build and fuse trees.} \label{alg:build_and_fuse_trees}
+	\small
+	\begin{algorithmic}
+	\Function{BuildAndFuseTrees}{$basicBlock, opTypes, minScore$}
+		\State $opSets \gets \Call{Sort}{basicBlock}$
+		\State $opPairs \gets \Call{BuildPairs}{opTypes, opSets}$
+		\State $pairUses \gets \Call{FindPairUses}{opPairs}$
+		\State $pairTrees \gets \Call{BuildUnprunedTrees}{opPairs, pairUses}$
+		\State $pairTrees \gets \Call{PruneLowScoringTrees}{pairTrees, minScore}$
+		\State %Empty line
+		\While {$\Call{Length}{pairTrees} > 0$}
+			\State $bestBranch \gets \Call{GetBestBranch}{pairTrees}$
+			\State $\Call{FuseBranch}{bestBranch}$
+			\State $pairTrees \gets \Call{PruneFusedOperations}{pairTrees, bestBranch}$
+			\State $pairTrees \gets \Call{PruneLowScoringTrees}{pairTrees, minScore}$
+			\State $pairTrees \gets \Call{PruneIntradependentPairs}{pairTrees}$
+			\State $pairTrees \gets \Call{PruneLowScoringTrees}{pairTrees, minScore}$
+		\EndWhile
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+Algorithm \ref{alg:build_and_fuse_trees} combines previous algorithms into two parts. Part one builds and prunes \textit{pairTrees}. Part two selects which pairs are to be fused, prunes \textit{pairTrees} and is looped until there are no more trees in \textit{pairTrees}. \textit{PruneLowScoringTrees} is called twice inside the loop to prevent more expensive algorithms from being run on trees which won't be used anyway.
+
+This algorithm is designed to be called in a fixed-point iteration manner for each \textit{basicBlock}, so that already fused operations can be fused again until the maximum vector length that the hardware supports has been reached.
+
+
+\section{Pair based basic-block vectorization}
+The pair based vectorizer is based on evaluating the profitability of pairs of operations directly. This is a much simpler approach than the LLVM based basic-block vectorizer. Fewer data structures and fewer functions for building and maintaining these data structures are needed. However the trade-off is optimality. Since the LLVM based approach builds entire sets of pairs that can be fused and determines which of these sets are the most profitable to fuse, it can avoid fusing some pairs that later would have hindered some other profitable pair from being fused.
+\\
+
+\begin{algorithm}[H]
+	\caption{Put pairs into a tree sorted by profitability.} \label{alg:put_pair_tree}
+	\small
+	\begin{algorithmic}
+	\Function{PutIntoTree}{$opPairs$}
+		\State $pairTree \gets \varnothing$
+		\ForAll {$pair \in opPairs$}
+			\State $pairScore \gets \Call{PairScore}{pair}$
+			\State $\Call{InsertIntoTree}{pairTree, pairScore, pair}$
+		\EndFor
+	\Return $pairTree$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+%Explain PairScore and InsertIntoTree
+Algorithm \ref{alg:put_pair_tree} sorts the pairs in \textit{opPairs} based on the score given by \textbf{PairScore}. Just like \textbf{TreeScore},  \textbf{PairScore} is a function which uses heuristics to return a \textit{pairScore} which measures the profitability of fusing this pair. \textbf{InsertIntoTree} is a function that inserts \textit{pair} into \textit{pairTree}. If there already exists a pair with the same \textit{pairScore} in \textit{pairTree}, the new pair is inserted into a set of pairs sharing that specific \textit{pairScore} in the \textit{pairTree}.
+\\
+
+\begin{algorithm}[H]
+	\caption{Fuse the most profitable pairs.} \label{alg:fuse_pairs}
+	\small
+	\begin{algorithmic}
+	\Function{FusePairs}{$pairTree, minScore$}
+		\While {$pairTree$ $!= \varnothing$}
+			\State $pair \gets \Call{GetBestPair}{pairTree}$
+			\If {$\Call{HasDependence}{\Call{Op1}{pairTree}, \Call{Op2}{pairTree}}$ $\&\&$\\
+			    \pushcode[1] $\Call{PairScore}{pair} >= minScore$}
+				\State $\Call{FusePair}{pair}$
+			\EndIf
+		\EndWhile
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+%Explain GetBestPair and FusePair
+Algorithm \ref{alg:fuse_pairs} fuses all pairs without internal dependences and a \textit{pairScore} larger or equal to \textit{minScore}. \textbf{GetBestPair} returns and removes the pair with the highest \textit{pairScore} from \textit{pairTree}.
+\\
+
+\begin{algorithm}[H]
+	\caption{Build and fuse pairs.} \label{alg:build_and_fuse_pairs}
+	\small
+	\begin{algorithmic}
+	\Function{FusePairs}{$basicBlock, minScore$}
+		\State $opSets \gets \Call{Sort}{basicBlock}$
+		\State $opPairs \gets \Call{BuildPairs}{opTypes, opSets}$
+		\State $pairTree \gets \Call{PutIntoTree}{opPairs}$
+		\State $\Call{FusePairs}{pairTree, minScore}$
+	\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+Algorithm \ref{alg:build_and_fuse_pairs} combines previous algorithms into a function that builds and combines the most profitable operation pairs.
+
+This algorithm is designed to be called in a fixed-point iteration manner for each \textit{basicBlock}, so that already fused operations can be fused again until the maximum vector length that the hardware supports has been reached.
+
+
+
+\section{Heuristics}
+\label{sec:treescore}
+\textbf{TreeScore} and \textbf{PairScore} are the main heuristic functions of the respective optimization passes. The score is the metric of our heuristics and is used to determine profitability of vectorization options. The higher the score, the more profitable the vectorization option is. The way it scores trees can range from simplistic to very intricate and hardware dependent.
+
+The heuristics employed by \textbf{TreeScore} and \textbf{PairScore} differ from each other. At a basic level they both evaluate the profitability of fusing a pair. But \textbf{TreeScore} has to take additional information about the current tree into account. Another difference is that many theoretically possible pairs have already been filtered out when building the trees. This prevents the heuristics from being very conservative, if any vectorization options are to be found.
+
+The simplest way is just to determine the height of a tree and return that as the score. While this is a relevant metric it is not fine-grained nor does it take any hardware aspects into consideration. The idea is that the higher the tree the lower the amount of moves per fused operation we have to do, since data is already in place in vector registers.
+
+Operations can also be scored differently depending on operation type. Some operations might be cheap in terms of hardware utilization, energy consumption or microprocessor cycles. The cumulative cost of an operation effects its score inversely.
+
+Hardware restrictions for how data can be stored and moved can be taken into consideration. Alignment requirements for operations may force additional moves to be generated. If data is used by multiple operations, moves may be forced to be generated.
+Moves may differ in cost, where some are free and some have a relatively high cost, depending on how the hardware is constructed.
+
+
+
+\section{Examples}
+Figure \ref{graph:novect} depicts a simple graph of operations and it will be used to illustrate the different routes of vectorization the two approaches take. For the sake of simplicity, operations that rearrange data have been omitted from all graphs. These graphs are not intended to be used to guage performance of code generated with either approaches to vectorization. The behaviors found in these examples are highly dependent on the implementation of the heuristic functions \textbf{TreeScore} and \textbf{PairScore}.
+
+\begin{center}
+	\inputfig{graph_novect.plot}
+\end{center}
+
+Figure \ref{graph:novect} is used as a input to the two vectorization approaches and Figures \ref{graph:llvm}, \ref{graph:pair_iter1} and \ref{graph:pair_iter2} are the resulting vectorizations.
+
+\begin{center}
+	\inputfig{graph_llvm.plot}
+\end{center}
+
+As it can been seen from Figure \ref{graph:llvm}, the LLVM based approach will find two pairs, \%5--\%6 and \%7--\%8. The output of the \%5--\%6 is used by both in operations in \%7--\%8. This is the kind of tree that is built and pruned by Algorithm \ref{alg:build_and_fuse_trees}. \%10--\%11 will not be a part of the tree since both operations do not depend on the output of \%7--\%8. Note that \%10 and \%11 could be fused if the heuristics allow trees of height 1 to be vectorized.
+
+\begin{center}
+	\inputfig{graph_pair_iter1.plot}
+\end{center}
+
+The implementation of \textbf{PairScore} dictates that only pairs which use constants or use the result of the same operation will be fused. As it can been seen from Figure \ref{graph:pair_iter1}, the pair based approach will only find the pair \%8--\%9 in the first iteration. 
+
+\begin{center}
+	\inputfig{graph_pair_iter2.plot}
+\end{center}
+
+In the second iteration of the pair based approach, seen in Figure \ref{graph:pair_iter2}, the pair \%10--\%11 is found. \%10--\%11 could not have been found in the previous iteration since \%10 and \%11 did not both use the result of the same operation. However when \%8--\%9 were fused, \%10--\%11 met all the requirements for vectorization.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Evaluation
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Evaluation}
+\phantomsection \label{chap:evaluation}
+%% Should describe the method used to evaluate your solution(s)/approach, including the experimental setup.
+
+
+\section{Benchmark Programs}
+%% Describe the benchmarks and where they come from.
+Three benchmarks were chosen, each containing a number of OpenGL ES 2.0 vertex and fragment shaders. The benchmarks center around the usage scenarios of a smartphone; graphical user interfaces and games.
+
+BenchA is a benchmark concerned mostly with gaming graphics. It consists of 37 fragment shaders and 38 vertex shaders.
+
+BenchB is a benchmark concerned mostly with animating graphical user interface components. It consists of 60 fragment shaders and 30 vertex shaders.
+
+BenchC is a benchmark concerned mostly with gaming graphics. It consists of 60 fragment shaders and 30 vertex shaders.
+
+
+\section{Measurement Details}
+%% Describe how measurements were obtained.
+For the compilation time benchmark, the compiler was timed when compiling all shaders in a benchmark 10000 times for each benchmark.
+
+When measuring the compiled code benchmark the instructions of the generated binary were used. By counting the number of cycles used in the arithmetic logic unit and counting the maximum number of registers needed at any time two measurements were obtained.
+
+
+\section{Compilation Benchmark}
+%% Present results of compilation time benchmark.
+The time the compiler needs to compile shaders in the benchmarks, less time is better. The results are presented as a ratio against the same benchmark compiled with no basic-block vectorization enabled.
+
+\begin{center}
+	\inputfig{cmp_time.plot}
+\end{center}
+
+In two benchmarks out of three, the compilation time is decreased. Overall, the both algorithms perform equally well.
+
+\section{Compiled Code Benchmark}
+%% Present results of benchmark of compiled code.
+
+
+\subsection{Arithmetic logic unit}
+The sum of the number of the arithmetic cycles used in the benchmark, fewer arithmetic cycles is better. The results are presented as a ratio against the same benchmark compiled with no basic-block vectorization enabled.
+
+\begin{center}
+	\inputfig{a_cycles.plot}
+\end{center}
+
+The LLVM based algorithm has worse arithmetic cycles performance than the pair based algorithm. The pair based algorithm does to a large extent not effect the arithmetic performance.
+
+\begin{center}
+	\inputfig{a_cycles_combined.plot}
+\end{center}
+
+The arithmetic cycles performance impact of the LLVM based algorithm is very volatile and overall negative.
+The arithmetic cycles performance impact of the pair based algorithm is slightly negative but in most cases unchanged.
+
+
+\subsection{Register usage}
+The sum of the number of registers needed to run the benchmark, fewer registers is better. The results are presented as a ratio against the same benchmark compiled with no basic-block vectorization enabled.
+
+\begin{center}
+	\inputfig{w_reg.plot}
+\end{center}
+
+The overall register usage impact of the LLVM based algorithm is negative, while the pair based approach is has a slightly positive register usage impact.
+
+
+\begin{center}
+	\inputfig{w_reg_combined.plot}
+\end{center}
+
+The register usage impact of the LLVM based algorithm is volatile and overall negative.
+The register usage of the the pair based algorithm is overall slightly decreased, but in most cases unchanged.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Discussion
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Discussion}
+\phantomsection \label{chap:discussion}
+%% Allows for a longer discussion and interpretation of the results from the evaluation, including  
+%% extrapolations and/or expected impact. This might also be a good
+%% place to describe your positive and negative experiences related to the work you carried out.
+
+% Discuss pair-based vs. LLVM-based
+The pair based basic-block vectorizer is much simpler than the LLVM based basic-block vectorizer and as a result the heuristics employed by it can be more exact and much easier to develop. On the other hand the LLVM based basic-block vectorizer compares sets of pairs to fuse. That gives it the opportunity to consider what the consequences of a single fused pair will be, and avoid alternatives that may seem profitable on the surface but are not in the context of further vectorization.
+
+
+% Discuss vectorization in general on GPU hardware
+A serious issue for machines with vector-registers only, one can expect the vector instructions to be scheduled on the same hardware as non-vector instructions. That means that the reduced number operations needed when changing two operations into one vector operation is entirely offset by a single move operation. This means that we have to rely on vectorization options that are known to be essentially free or at least cheaper than the operation that is removed by fusing a pair of operations. This alters the notion of heuristics and scores into something more like a filter or a white-list, where only known cheap or free options are allowed. This is especially problematic in the context of GPU programs since they tend to be very small and often offer few opportunities for vectorization to begin with.
+
+
+% Discuss the suitability of the LLVM based vectorizer
+The LLVM basic-block vectorizer is based on the idea of amortizing the cost of moving data into vector register by making sure that data that has been moved is used at least a number of times before it has to be moved out again. This assumption works well in the traditional context of multimedia extensions on CPUs with separate register and vector register banks, but has very little meaning in the context of an all vector-register machine. However incorporated in that same idea is the notion of fusing a set of operations that are deemed more profitable than another set. This is valuable and can be used to avoid fusing pairs of operations that later will prohibit more important pairs from being fused.
+
+
+
+\section{Compiler}
+\label{sec:compiler}
+% Discuss the notion of compiler 'noise'
+One issue when developing heuristics and trying to determine their effectiveness is the noise created by other optimization passes, transformations and the back-end. Simply replacing an operation with a new and equivalent operation might change the instruction scheduling. If larger changes are made, it is likely that later optimization passes and transformations will interact with the changes and create ripples of changes that ultimately are likely to alter instruction selection and scheduling even further. The noise could be minimized during the development of a specific optimization pass or transformation by running as little other functionality in the compiler as possible. But this would create an issue of selecting which behavior is correct when integrating the new optimization or transformation pass with the full compiler.
+
+
+% Discuss register pressure
+When two operations are performed separately they can be shuffled around to a larger extent and are likely to use register resources at different points in time. However when both operations are combined into a vector operations they will require at least the same amount of register space, but now at the exact same time, which makes register allocation harder and more likely to spill.
+
+
+% Discuss instruction scheduling
+Another effect of combining two operations is making instruction scheduling harder because more dependences are concentrated in a single operation. When scheduling these operations, fewer alternatives are possible and the instruction scheduler may be forced to create a more expensive schedule. 
+
+
+
+\section{Evaluation}
+The cases of increased compilation speed in Figure \ref{plot:cmp_time} are surprising, but can be explained by the number of operations being removed by vectorization. This correlates well with the results in Figure \ref{plot:a_cycles} and Figure \ref{plot:w_reg}, where performance of BenchB is not changed other than the compilation time is being increased.
+
+Figure \ref{plot:a_cycles} shows an overall decreased arithmetic performance of the LLVM based algorithm. Specifically Figure \ref{plot:a_cycles_combined} shows that about half of the vectorizations made are unprofitable and about a fourth of them are profitable. In most cases this is due to the heuristics, which are not very conservative. There clearly are cases which cause bad performance that are not taken into account when computing the \textbf{TreeScore}.
+
+Figure \ref{plot:a_cycles} shows almost unchanged arithmetic performance for the pair based algorithm. Specifically Figure \ref{plot:a_cycles_combined} shows that most of the cases where vectorization is performed the result is unchanged performance. This is due to vectorized operations not always translating into faster binaries. The changes produced are fed into the back-end of the compiler, which is highly tuned for the parameters that it usually sees. Vectorization causes parameters like register pressure and scheduling tightness to be changed which might cause the back-end to generate sub-optimal solutions.
+
+Figure \ref{plot:w_reg} shows an overall increase in register usage of the LLVM based algorithm. Specifically Figure \ref{plot:w_reg_combined} shows that the register usage is quite volatile, this can be attributed to the heuristics of \textbf{TreeScore} not being very conservative.
+
+Figure \ref{plot:w_reg} shows an overall decrease in register usage of the pair based algorithm. This is not something to be expected from vectorization in general, but some heuristics of \textbf{PairScore} look for cases where register usage can be decreased. However Figure \ref{plot:w_reg_combined} shows that in most cases register usage is unchanged, which is the best case scenario while vectorizing, due to the increased register pressure.
+
+
+
+
+\section{Implementation}
+% Keep first pair found in remove_dup_ops, might be better with another heuristic.
+While pruning duplicated operations in Algorithm \ref{alg:prune_dup_ops} there is a decision about which pair to prune if pairs containing the same operations are found. The current solution of simply pruning all pairs after the first is a simplistic one. A better heuristic would be to compare which of the conflicting pairs can be removed to minimize the decrease in \textbf{TreeScore}. However if there are multiple conflicting sets of pairs the problem gets harder due to the interdependences of conflicts, which makes this a compile-time vs. run-time trade off. The increase in complexity and compile-time was deemed not worth it for the few cases where conflicts were found.
+
+
+% Discuss the further possibilities of heuristics
+The heuristics are the most important factor for runtime performance of programs compiled with this algorithm. For different compiler types the implementation of \textbf{TreeScore} and \textbf{PairScore} should vary greatly. 
+
+Compilers which compile for many hardware architectures should have an implementation of the heuristics that is very general. This can be accomplished in one of two ways. The first one is to give this algorithm access to architecture specific information. The second option is to make sure that the heuristics make no architecture specific assumptions. If the second option is elected, there are still some fundamental architecture specifics that are needed. \textbf{IsFusible} and \textbf{AreFusible} both depend on the maximum supported vector length of the hardware. A maximum vector length longer than what the hardware supports could be used and the compiler back-end could simply break illegal vector operations into smaller parts. While this is possible, it creates more work for the algorithm and the results may need to be truncated in an uncontrolled and suboptimal way.
+
+For compilers that are used for a narrow range of hardware architectures the heuristics implementation should take as many hardware aspects as possible into consideration. Some aspects may be expensive to find or verify which leads to a compile-time vs. run-time trade off.
+
+When combining pairs of operations into trees, only pairs where the output of both operations in the pair are used directly by the operations in the next pair are added to the tree. A possible option is to let pairs which only use the output of one of the previous pairs be added to the tree. This would allow for longer trees to be built, however this would require more moves which are expensive. Whether this would be profitable is not known and further work is required.
+
+
+\section{Problems Encountered}
+% Describe what issues have been encountered and which remain.
+
+Since this optimization is new in the context of this compiler, some performance-wise incompatibility is to be expected. For example the back-end is finely tuned to input which has a certain register pressure and might perform worse if the pressure is increased. Issues like these made development of general heuristics very difficult and a white-list/filter approach was mainly used instead.
+Overall, the back-end and the code generation have the biggest issues in terms of developing a vectorization algorithm that improves performance. The workarounds that have been employed to achieve the current level of performance have also made the implementation of this algorithm very specific to the compiler it was developed for.
+
+Multiple issues relating to scalability exist. Given a set of operations of a single type with size $n$ the number of possible combinations is $\frac{n^2}{2}$. Most of the possible operations are fusible but might have internal dependences.
+
+A single call to \textbf{HasDependence} has the time-complexity $\mathcal{O}(2^\frac{{h_{bb}}}{2})$, where $h_{bb}$ is the height of the basic-block dependence tree and each operation is assumed to have a direct dependence on two operations. $h_{bb}$ does in turn depend on the size of the basic-block. This time-complexity models the basic block as single tree, producing a single output. In realistic scenarios there are likely multiple outputs and the direct dependence graph is a directed acyclic graph, not a tree.
+
+When combined the time-complexity of initially building a tree for a single operation type is $\mathcal{O}(\frac{n^2}{2}*2^\frac{{h_{bb}}}{2})$. This is not a large problem for GPU compilers at the moment, but basic-block sizes are likely to increase in the future. For increasing sizes of $n$ and $h_{bb}$ bailouts or fast-paths need to be implemented. Since much of the compilation of a GPU compiler is done during the run-time of applications, compilation time is a very important factor.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Conclusion
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Conclusion}
+\phantomsection \label{chap:conclusion}
+%% Critical review and discussion of results.
+%% Review if the goals have been met.
+%% Should summarize your findings and possible improvements or recommendations.
+
+As it can be seen from the run-time charts, the LLVM based vectorizer performs worse than no vectorization at all throughout all the tests. The pair based vectorizer performs better in three out of six benchmarks, produces no changes in BenchB and increases the arithmetic cycle count for BenchA.
+Combined with the run-time charts, the compilation-time chart hints at vectorization increasing the compilation speed for cases where profitable vectorization options are found.
+Another conclusion is that BenchC lends itself very well to vectorization.
+
+In general the performance of the output of the pair based vectorizer is unchanged. This is due to the heuristics being very careful as to not do unprofitable vectorization, still unprofitable vectorizations are performed. If more cases of profitable vectorization were found, more performance gains could be had.
+
+The goal of this master's thesis was to find an develop a basic-block auto-vectorization optimization pass suitable for a graphics compiler. Two optimization passes have been developed, however no large performance gains have been found with either of them, but compilation speed increases have been found.
+
+Improving performance for a graphics compiler on an all vector register machine is difficult for a few reasons. Move operations are likely to be carried out on the same hardware as the vector operations, which in principle prevents the usage of any moves. The same issue of sharing hardware resources is likely to be valid for operations and their vector operations counterparts, which means that a successful vectorization only saves a single cycle. Register pressure is increased which can have very severe consequences in the context of graphics applications and performance. Additionally the instruction scheduler will be faced with a tighter schedule as a result of two operations that previously could be chronologically separate, but now need their dependences to be met at the same time.
+
+\section{Future Work}
+%% Review possible further development.
+
+Further exploration into heuristics is needed to find more cases of guaranteed or almost guaranteed profitable vectorization options. Many vectorization options can be free in some or most cases but are not always free. Some performance gains could be had if more known bad vectorization options were known.
+
+\textbf{HasDependence} could be improved to have a better time-complexity using an algorithm like Tarjan's strongly connected components (henceforth SCC) algorithm \cite{tarjan1972depth}. If the operations in the pair are temporarily fused and SCC does find a group of size larger than one, a dependence cycle has arisen. SCC has the time-complexity $\mathcal{O}(|V| + |E|)$, where $V$ is the set of operations in the basic-block and $E$ is the set of direct dependences between operations.
+
+Caching the results of \textbf{HasDependence} is another alternative that is straight forward to implement and would yield an performance improvement. However the cache would need to be cleared after every fused operation pair, which limits its effectiveness.
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%   Bibliography
+%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\phantomsection \label{bibl}
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliography{ref}
+\end{document}
