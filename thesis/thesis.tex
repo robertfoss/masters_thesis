@@ -314,7 +314,7 @@ Operation combinations are paired using \textbf{Pair} and then added to the set 
 	\end{algorithmic}
 \end{algorithm}
 % Explain Op1(), Op2() and DirectDependences()
-Algorithm \ref{alg:find_dep} finds all pairs which use the outputs of both operations in \textit{pair} as input and adds them to a set in \textit{pairUses}. \textbf{Op1} and \textbf{Op2} simply fetch the first and second operation from a pair. \textbf{DirectDependences} fetches all pairs which directly depend on the output of an operation. The union of \textit{pairsUsingOp1} and \textit{pairsUsingOp2} will consist only of pairs that directly depend on both outputs of \textit{pair}.
+Algorithm \ref{alg:find_dep} finds all pairs which use the outputs of both operations in \textit{pair} as input and adds them to a set in \textit{pairUses}. \textbf{Op1} and \textbf{Op2} simply fetch the first and second operation from a pair. \textbf{DirectDependences} fetches all pairs which directly depend on the output of an operation. The intersection of \textit{pairsUsingOp1} and \textit{pairsUsingOp2} will consist only of pairs that directly depend on both outputs of \textit{pair}.
 \\
 
 \begin{algorithm}[H]
