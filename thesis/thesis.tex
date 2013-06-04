@@ -816,7 +816,7 @@ Improving performance for a graphics compiler on an all vector register machine 
 \section{Future Work}
 %% Review possible further development.
 
-Further exploration into heuristics is needed to find more cases of guaranteed or almost guaranteed profitable vectorization options. Many vectorization options can be free in some or most cases but are not always free. Some performance gains could be had if more known bad vectorization options were known.
+Further exploration into heuristics is needed to find more cases of guaranteed or almost guaranteed profitable vectorization options. Many vectorization options can be free in some or most cases but are not always free. Some performance gains could be had if more bad vectorization options were known.
 
 \textbf{HasDependence} could be improved to have a better time-complexity using an algorithm like Tarjan's strongly connected components (henceforth SCC) algorithm \cite{tarjan1972depth}. If the operations in the pair are temporarily fused and SCC does find a group of size larger than one, a dependence cycle has arisen. SCC has the time-complexity $\mathcal{O}(|V| + |E|)$, where $V$ is the set of operations in the basic-block and $E$ is the set of direct dependences between operations.
 
