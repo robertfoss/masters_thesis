@@ -199,9 +199,9 @@ Run-time costs arise when data has to be moved into a specific register, re-orde
 %% Mention LLVM BBVectorize and the gcc straight line vectorizer.
 Common vectorization techniques fall into one of two categories, loop transformations or basic-block vectorization.
 
-Loop transformations are based on analyzing loop boundaries and data dependences. Algorithms like Fourier-Motzkin elimination\cite{aho2007compilers} can be used to determine which loop-iterations are independent and therefore vectorizable. GCC uses data dependence analysis in the form of a Static Single Assignment \cite{cytron1991efficiently}\cite{naishlos2004autovectorization} graph in combination with a Strongly Connected Components search using a linear algorithm like that presented by Tarjan\cite{tarjan1972depth}. Loop iterations that are found to have no data dependence can be vectorized by simply doing multiple iterations of the loop by replacing operations with their vector equivalent. If the original loop runs a number of iterations which isn't evenly divisible by the vectorization factor, a cleanup loop is needed. The cleanup loop runs the remaining loop iterations, which haven't been computed by the vectorized loop.
+Loop transformations are based on analyzing loop boundaries and data dependences. Algorithms like Fourier-Motzkin elimination\cite{aho2007compilers} can be used to determine which loop-iterations are independent and therefore vectorizable. The GNU Compiler Collection uses data dependence analysis in the form of a Static Single Assignment \cite{cytron1991efficiently}\cite{naishlos2004autovectorization} graph in combination with a Strongly Connected Components search using a linear algorithm like that presented by Tarjan\cite{tarjan1972depth}. Loop iterations that are found to have no data dependence can be vectorized by simply doing multiple iterations of the loop by replacing operations with their vector equivalent. If the original loop runs a number of iterations which isn't evenly divisible by the vectorization factor, a cleanup loop is needed. The cleanup loop runs the remaining loop iterations, which haven't been computed by the vectorized loop.
 
-Basic-block vectorization is done by determining which operations are independent and can be combined into a vector operation. The Vienna MAP vectorizer \cite{lorenz2005vectorization} introduced the idea of finding pairs of operations that can be built into trees of vector operations, to avoid having to move data around. The Vienna MAP vectorizer is the basis of basic-block vectorizer of LLVM called BBVectorize, which was introduced in LLVM version 3.1 by Hal Finkel. BBVectorize does basic-block vectorization by doing dependence analysis, pairing independent operations and chaining the pairs into trees. If the trees are long enough, the best trees of pairs are converted into vector operations \cite{finkel2012bbvectorize}. Heuristics are used to determine what constitutes a good tree. Some heuristics used in the LLVM basic-block vectorizer are not applicable or needed for graphics microprocessors, since the hardware architecture is based on vector-registers only.
+Basic-block vectorization is done by determining which operations are independent and can be combined into a vector operation. The Vienna MAP vectorizer \cite{lorenz2005vectorization} introduced the idea of finding pairs of operations that can be built into trees of vector operations, to avoid having to move data around. The Vienna MAP vectorizer is the basis of basic-block vectorizer of LLVM called BBVectorize\cite{finkel2012bbvectorize}, which was introduced in LLVM version 3.1 by Hal Finkel. BBVectorize does basic-block vectorization by doing dependence analysis, pairing independent operations and chaining the pairs into trees. If the trees are long enough, the best trees of pairs are converted into vector operations \cite{finkel2012bbvectorize}. Heuristics are used to determine what constitutes a good tree. Some heuristics used in the LLVM basic-block vectorizer are not applicable or needed for graphics microprocessors, since the hardware architecture is based on vector-registers only.
 
 
 %%%%% Contributions
@@ -342,7 +342,7 @@ Algorithm \ref{alg:find_dep} finds all pairs which use the outputs of both opera
 \end{algorithm}
 % Explain AddTreeBranch()
 Algorithm \ref{alg:build_trees} uses the \textit{pairUses} information to construct trees, where each child of a tree node directly depends on that tree node.
-Each pair is made into a tree, even if the height of that tree would be just one pair. The \textbf{Tree} function constructs a tree node out of a pair. \textbf{AddTreeBranch} is used to a append a tree node as a child to another tree node.
+Each pair is made into a tree, even if the height of that tree would be just one pair. The \textbf{Tree} function constructs a tree node out of a pair. \textbf{AddTreeBranch} is used to append a tree node as a child to another tree node.
 \\
 
 \begin{algorithm}[H]
@@ -360,7 +360,7 @@ Each pair is made into a tree, even if the height of that tree would be just one
 	\end{algorithmic}
 \end{algorithm}
 % Explain TreeScore()
-Algorithm \ref{alg:prune_score} has the task of removing all trees with a score lower than \textit{minScore} from \textit{pairTrees}. This pruning is needed to minimize the number of trees Algorithm \ref{alg:prune_cycl_pair} has to process. This is important because Algorithm \ref{alg:prune_cycl_pair} can be very expensive and depends on the size of the basic-block. The pruning is also used to remove trees from \textit{pairTrees} to enable iteration over \textit{pairTrees} until it does not contain any trees. \textbf{TreeScore} is the function containing the heuristics that determine which trees are profitable to vectorize and which are not, and it will be further discussed in Section \ref{sec:treescore}.
+Algorithm \ref{alg:prune_score} has the task of removing all trees with a score lower than \textit{minScore} from \textit{pairTrees}. \textit{minScore} is an implementation defined value which provides a cut-off point beneath which no vectorization will take place. This pruning is needed to minimize the number of trees Algorithm \ref{alg:prune_cycl_pair} has to process. This is important because Algorithm \ref{alg:prune_cycl_pair} can be very expensive and depends on the size of the basic-block. The pruning is also used to remove trees from \textit{pairTrees} to enable iteration over \textit{pairTrees} until it does not contain any trees. \textbf{TreeScore} is the function containing the heuristics that determine which trees are profitable to vectorize and which are not, and it will be further discussed in Section \ref{sec:treescore}.
 \\
 
 \begin{algorithm}[H]
@@ -394,7 +394,7 @@ Algorithm \ref{alg:prune_score} has the task of removing all trees with a score 
 	\end{algorithmic}
 \end{algorithm}
 % Explain TreeChildren() and RemoveTreeBranch()
-The purpose of Algorithm \ref{alg:prune_dup_ops} is to remove pairs which contain operations that are found elsewhere in the tree. \textbf{TreeChildren} returns a set of all child nodes to the tree node that is the argument. \textbf{RemoveTreeBranch} simple removes a tree node from the list of children of another tree node.
+The purpose of Algorithm \ref{alg:prune_dup_ops} is to remove pairs which contain operations that are found elsewhere in the tree. \textbf{TreeChildren} returns a set of all child nodes to the tree node that is the argument. \textbf{RemoveTreeBranch} simply removes a tree node from the list of children of another tree node.
 
 When two or more duplicated operations are found, every operation after the first one found will be pruned from the tree. This is a very simple heuristic and could be improved to make more intelligent decisions.
 \\
@@ -488,7 +488,7 @@ The returned list is ordered in the same order as the tree nodes were.
 	\end{algorithmic}
 \end{algorithm}
 % Explain Ops()
-Algorithm \ref{alg:prune_fused_ops} prunes branches which contain pairs that use operations that have already been fused. \textbf{Ops} returns the set of operations contained within all pairs in \textit{branchPairList}. The operations that are removed have also been removed from the control flow graph of the program and replaced with its vector counterpart by the \textbf{FusePair} function in Algorithm \ref{alg:fuse_branch}. However the new vector operation can be fused later during the fixed-point iteration of this entire optimization.
+Algorithm \ref{alg:prune_fused_ops} prunes branches which contain pairs that use operations that have already been fused. \textbf{Ops} returns the set of operations contained within all pairs in \textit{branchPairList}. The operations that are removed have also been removed from the program and replaced with their vector counterpart by the \textbf{FusePair} function in Algorithm \ref{alg:fuse_branch}. However the new vector operation can be fused later during the fixed-point iteration of this entire optimization.
 \\
 
 \begin{algorithm}[H]
@@ -528,7 +528,7 @@ The purpose of Algorithm \ref{alg:fuse_branch} is to fuse all operation pairs in
 	\EndFunction
 	\end{algorithmic}
 \end{algorithm}
-Algorithm \ref{alg:build_and_fuse_trees} combines previous algorithms into two parts. Part one builds and prunes \textit{pairTrees}. Part two selects which pairs are to be fused, prunes \textit{pairTrees} and is looped until there are no more trees in \textit{pairTrees}. \textit{PruneLowScoringTrees} is called twice inside the loop to prevent more expensive algorithms from being run on trees which won't be used anyway.
+Algorithm \ref{alg:build_and_fuse_trees} is the starting point of the LLVM based vectorization algorithm and combines previous algorithms into two parts. Part one builds and prunes \textit{pairTrees}. Part two selects which pairs are to be fused, prunes \textit{pairTrees} and is looped until there are no more trees in \textit{pairTrees}. \textit{PruneLowScoringTrees} is called twice inside the loop to prevent more expensive algorithms from being run on trees which won't be used anyway.
 
 This algorithm is designed to be called in a fixed-point iteration manner for each \textit{basicBlock}, so that already fused operations can be fused again until the maximum vector length that the hardware supports has been reached.
 
@@ -730,7 +730,7 @@ A serious issue for machines with vector-registers only, one can expect the vect
 
 
 % Discuss the suitability of the LLVM based vectorizer
-The LLVM basic-block vectorizer is based on the idea of amortizing the cost of moving data into vector register by making sure that data that has been moved is used at least a number of times before it has to be moved out again. This assumption works well in the traditional context of multimedia extensions on CPUs with separate register and vector register banks, but has very little meaning in the context of an all vector-register machine. However incorporated in that same idea is the notion of fusing a set of operations that are deemed more profitable than another set. This is valuable and can be used to avoid fusing pairs of operations that later will prohibit more important pairs from being fused.
+The LLVM basic-block vectorizer is based on the idea of amortizing the cost of moving data into vector register by making sure that data that has been moved is used at least a number of times before it has to be moved out again. This assumption works well in the traditional context of multimedia extensions on CPUs with separate register and vector register banks, but has very little meaning in the context of an all vector-register machine since data is already located in vector registers. However incorporated in that same idea is the notion of fusing a set of operations that are deemed more profitable than another set. This is valuable and can be used to avoid fusing pairs of operations that later will prohibit more important pairs from being fused.
 
 
 
@@ -770,13 +770,13 @@ While pruning duplicated operations in Algorithm \ref{alg:prune_dup_ops} there i
 
 
 % Discuss the further possibilities of heuristics
-The heuristics are the most important factor for runtime performance of programs compiled with this algorithm. For different compiler types the implementation of \textbf{TreeScore} and \textbf{PairScore} should vary greatly. 
+The heuristics are the most important factor for runtime performance of programs compiled with these algorithms. For different compiler types the implementation of \textbf{TreeScore} and \textbf{PairScore} should vary greatly. 
 
 Compilers which compile for many hardware architectures should have an implementation of the heuristics that is very general. This can be accomplished in one of two ways. The first one is to give this algorithm access to architecture specific information. The second option is to make sure that the heuristics make no architecture specific assumptions. If the second option is elected, there are still some fundamental architecture specifics that are needed. \textbf{IsFusible} and \textbf{AreFusible} both depend on the maximum supported vector length of the hardware. A maximum vector length longer than what the hardware supports could be used and the compiler back-end could simply break illegal vector operations into smaller parts. While this is possible, it creates more work for the algorithm and the results may need to be truncated in an uncontrolled and suboptimal way.
 
 For compilers that are used for a narrow range of hardware architectures the heuristics implementation should take as many hardware aspects as possible into consideration. Some aspects may be expensive to find or verify which leads to a compile-time vs. run-time trade off.
 
-When combining pairs of operations into trees, only pairs where the output of both operations in the pair are used directly by the operations in the next pair are added to the tree. A possible option is to let pairs which only use the output of one of the previous pairs be added to the tree. This would allow for longer trees to be built, however this would require more moves which are expensive. Whether this would be profitable is not known and further work is required.
+When combining pairs of operations into trees, only pairs where the output of both operations in the pair are used directly by the operations in the next pair are added to the tree. A possible option is to let pairs which only use the output of one of the previous pairs be added to the tree. This would allow for longer trees to be built, however this would require more moves which are expensive.
 
 
 \section{Problems Encountered}
