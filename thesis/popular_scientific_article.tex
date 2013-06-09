@@ -59,7 +59,7 @@ Vectorization is the idea of doing two calculations at the same time. Let's say 
 			coordinates {(BenchA,0.992) (BenchB,1.00) (BenchC,0.97)};
 
 
-%        \legend{No vectorization, Pair-based}
+        \legend{No vectorization, Pair-based}
     \end{axis}
 \end{tikzpicture}
 \end{figure}
@@ -67,7 +67,7 @@ Vectorization is the idea of doing two calculations at the same time. Let's say 
 Register usage is measure of space. Think of registers like like the RAM in your laptop or phone, but integrated into the processor. In the context of graphics processors, decreased register usage translates into increased performance.
 
 
-The results gathered and shown in the arithmetic cycles plot shows that performance is being improved somewhere between +0.8\% and +3\%, and on average +1.9\%.
+The results gathered and shown in the register usage plot shows that performance is being improved somewhere between +0.8\% and +3\%, and on average +1.9\%.
 
 
 
@@ -109,12 +109,12 @@ The results gathered and shown in the arithmetic cycles plot shows that performa
 			coordinates {(BenchA,1.014) (BenchB,1.00) (BenchC,0.997)};
 
 
-        \legend{No vectorization, Pair-based}
+%        \legend{No vectorization, Pair-based}
     \end{axis}
 \end{tikzpicture}
 \end{figure}
 
-Arithmetic cycles is a measure for the amount of time it takes to compute a value. Cycles per seconds are measured in what commonly is referred to as mHz.
+Arithmetic cycles is a measure for the amount of time it takes to compute a value. Cycles per seconds are measured in what commonly is referred to as MHz.
 
 The results gathered and shown in the arithmetic cycles plot shows that performance is being altered somewhere between -1.4\% and +0.03\%, and on average -0.69\%.
 
