@@ -1,7 +1,7 @@
 Basic-block vectorization for graphics compilers
 ------------------------------------------------
 
-###Abstract###
+### Abstract
 
 
 Increasingly complex graphics shaders and new use cases like OpenCL provide increased opportunities for vectorization, due the the larger code-bases they provide. Unlike general-purpose microprocessors, graphics microprocessors can feasibly be equipped with just vector registers. By already having data in vector registers, some of the cost of vectorization can be avoided, which leads to vectorization being simpler on graphics microprocessors than on most general-purpose microprocessors.
